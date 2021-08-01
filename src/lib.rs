@@ -54,6 +54,7 @@ use tokio::{
         Sender as BoundedSender, UnboundedReceiver, UnboundedSender,
     },
 };
+use tokio_serial::SerialPortBuilderExt;
 use trx_command::ReceivedCommand;
 pub use trx_command::{Frequency, ProtocolMessage};
 
@@ -62,7 +63,7 @@ const MESSAGE_QUEUE_LEN: usize = 100;
 ///
 /// Tries to read a message from the serial port, if a message with size=0 is received,
 /// None is returned.
-async fn read_message(sp: &mut tokio_serial::Serial) -> Result<Option<Vec<u8>>> {
+async fn read_message(sp: &mut tokio_serial::SerialStream) -> Result<Option<Vec<u8>>> {
     let mut buffer = Vec::with_capacity(255);
 
     // First byte is the size
@@ -87,10 +88,10 @@ async fn read_message(sp: &mut tokio_serial::Serial) -> Result<Option<Vec<u8>>> 
 ///
 /// Listens for serial port messages
 async fn serial_port(
-    mut sp: tokio_serial::Serial,
+    mut sp: tokio_serial::SerialStream,
     mut to_serial_rx: UnboundedReceiver<Vec<u8>>,
-    mut interface_msg_tx: BoundedSender<trx_command::InterfaceMessage>,
-    mut protocol_msg_tx: BoundedSender<trx_command::ProtocolMessage>,
+    interface_msg_tx: BoundedSender<trx_command::InterfaceMessage>,
+    protocol_msg_tx: BoundedSender<trx_command::ProtocolMessage>,
 ) -> Result<()> {
     loop {
         select! {
@@ -158,11 +159,11 @@ impl RFXtrx433 {
 
     /// Create an instance from a serial port tty, e.g. /dev/ttyUSB0
     pub async fn new_from_serial_port(port: &str) -> Result<Self> {
-        let s = serialport::SerialPortSettings {
-            baud_rate: 38400,
-            ..Default::default()
-        };
-        let sp = tokio_serial::Serial::from_path(port, &s)?;
+        // let s = serialport::SerialPortSettings {
+        //     baud_rate: 38400,
+        //     ..Default::default()
+        // };
+        let sp = tokio_serial::new(port, 38400).open_native_async()?;
         let (to_serial_tx, to_serial_rx) = unbounded_channel();
         let (interface_msg_tx, interface_msg_rx) = bounded_channel(MESSAGE_QUEUE_LEN);
         let (protocol_msg_tx, protocol_msg_rx) = bounded_channel(MESSAGE_QUEUE_LEN);
@@ -191,7 +192,7 @@ impl RFXtrx433 {
             .map_err(|e| TRXError::TokioSendError(format!("{}", e)))?;
         // Need to sleep at least 500 ms after reset
         debug!("Sleeping after sending reset");
-        tokio::time::delay_for(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         Ok(())
     }
 
